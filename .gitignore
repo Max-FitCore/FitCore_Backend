@@ -1,0 +1,110 @@
+# Node.js / JavaScript
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+package-lock.json
+yarn.lock
+
+# Environment variables
+.env
+.env.local
+.env.production
+.env.development
+
+# IDE / Editor files
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+*.sw?
+
+# OS files
+Thumbs.db
+Desktop.ini
+.DS_Store
+._*
+
+# Logs
+logs/
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+lerna-debug.log*
+
+# Build / Dist
+dist/
+build/
+out/
+*.tsbuildinfo
+
+# Testing
+coverage/
+.nyc_output/
+reports/
+test-results/
+
+# Database
+*.db
+*.sqlite
+*.sqlite3
+*.mongo
+mongodb-data/
+
+# Uploads / Files
+uploads/
+temp/
+tmp/
+public/uploads/
+public/temp/
+*.pdf
+*.xlsx
+*.xls
+*.csv
+
+# Cloudinary / Cloud Storage
+cloudinary.json
+cloudinary.config.json
+
+# Secrets
+*.pem
+*.key
+*.crt
+*.p12
+*.pfx
+secrets/
+credentials.json
+service-account.json
+
+# Docker
+docker-compose.override.yml
+Dockerfile
+.dockerignore
+
+# Misc
+*.pem
+*.env
+*.log
+*.gz
+*.zip
+*.rar
+*.7z
+
+# Backup files
+*.bak
+*.backup
+*.old
+*.orig
+
+# Project specific
+fitcore-database/
+backup/
+logs/
+storage/
