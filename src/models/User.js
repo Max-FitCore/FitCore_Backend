@@ -31,13 +31,30 @@ const userSchema = new mongoose.Schema({
     enum: ['member', 'trainer', 'administrator'],
     default: 'member'
   },
+  // Profile fields
+  phone: {
+    type: String,
+    trim: true,
+    default: null
+  },
+  location: {
+    type: String,
+    trim: true,
+    default: null
+  },
+  bio: {
+    type: String,
+    trim: true,
+    maxlength: [500, 'Bio cannot exceed 500 characters'],
+    default: null
+  },
+  // Member specific details
   memberDetails: {
     dateOfBirth: Date,
     gender: {
       type: String,
       enum: ['male', 'female', 'other']
     },
-    phoneNumber: String,
     address: String,
     emergencyContact: {
       name: String,
@@ -68,7 +85,6 @@ const userSchema = new mongoose.Schema({
 
 // Hash password before saving
 userSchema.pre('save', async function() {
-  // Only hash if password is modified
   if (this.isModified('password')) {
     const salt = await bcrypt.genSalt(10);
     this.password = await bcrypt.hash(this.password, salt);

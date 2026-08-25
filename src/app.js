@@ -13,6 +13,7 @@ app.use(express.urlencoded({ extended: true }));
 
 // Routes
 app.use('/api/auth', require('./routes/authRoutes'));
+app.use('/api/profile', require('./routes/profileRoutes'));
 
 // Health check
 app.get('/api/health', (req, res) => {
@@ -23,7 +24,7 @@ app.get('/api/health', (req, res) => {
   });
 });
 
-// Error handling middleware (no next)
+// Error handling middleware
 app.use((err, req, res) => {
   const statusCode = err.statusCode || 500;
   res.status(statusCode).json({
