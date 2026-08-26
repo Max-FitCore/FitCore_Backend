@@ -320,13 +320,13 @@ const deleteWorkoutPlan = async (req, res) => {
   }
 };
 
-// @desc    Assign workout plan to members
-// @route   POST /api/workout-plans/:id/assign
+// @desc    Assign workout plan to a member
+// @route   POST /api/workout-plans/assign/:memberId
 // @access  Private (Trainer only)
 const assignWorkoutPlan = async (req, res) => {
   try {
-    const { id } = req.params;
-    const { memberIds } = req.body;
+    const { memberId } = req.params;
+    const { planId } = req.body;
     const trainerId = req.user._id;
 
     if (req.user.role !== 'trainer') {
@@ -336,54 +336,68 @@ const assignWorkoutPlan = async (req, res) => {
       });
     }
 
-    if (!memberIds || !Array.isArray(memberIds) || memberIds.length === 0) {
+    if (!planId) {
       return res.status(400).json({
         success: false,
-        message: 'At least one member ID is required'
+        message: 'Plan ID is required in the body'
       });
     }
 
-    const workoutPlan = await WorkoutPlan.findById(id);
-
-    if (!workoutPlan) {
-      return res.status(404).json({
-        success: false,
-        message: 'Workout plan not found'
-      });
-    }
-
-    if (workoutPlan.trainerId.toString() !== trainerId.toString()) {
-      return res.status(403).json({
-        success: false,
-        message: 'You can only assign your own workout plans'
-      });
-    }
-
-    // Verify all members exist and are actually members
-    const members = await User.find({
-      _id: { $in: memberIds },
+    // Check if member exists and is a member
+    const member = await User.findOne({
+      _id: memberId,
       role: 'member',
       isActive: true
     });
 
-    if (members.length !== memberIds.length) {
-      return res.status(400).json({
+    if (!member) {
+      return res.status(404).json({
         success: false,
-        message: 'One or more member IDs are invalid or inactive'
+        message: 'Member not found or inactive'
       });
     }
 
-    // Add members to assigned list (avoid duplicates)
-    const existingMembers = workoutPlan.assignedMembers.map(id => id.toString());
-    const newMembers = memberIds.filter(id => !existingMembers.includes(id));
+    // Check if workout plan exists and belongs to trainer
+    const workoutPlan = await WorkoutPlan.findOne({
+      _id: planId,
+      trainerId: trainerId
+    });
 
-    workoutPlan.assignedMembers.push(...newMembers);
+    if (!workoutPlan) {
+      return res.status(404).json({
+        success: false,
+        message: 'Workout plan not found or you do not own it'
+      });
+    }
+
+    // Check if already assigned
+    if (workoutPlan.assignedMembers.includes(memberId)) {
+      return res.status(400).json({
+        success: false,
+        message: 'This workout plan is already assigned to the member'
+      });
+    }
+
+    // Assign member to plan
+    workoutPlan.assignedMembers.push(memberId);
     await workoutPlan.save();
 
     res.status(200).json({
       success: true,
-      message: `Workout plan assigned to ${newMembers.length} member(s)`,
-      data: workoutPlan
+      message: `Workout plan "${workoutPlan.planName}" assigned to ${member.fullName} successfully`,
+      data: {
+        member: {
+          _id: member._id,
+          fullName: member.fullName,
+          email: member.email
+        },
+        workoutPlan: {
+          _id: workoutPlan._id,
+          planName: workoutPlan.planName,
+          planType: workoutPlan.planType,
+          planLevel: workoutPlan.planLevel
+        }
+      }
     });
 
   } catch (error) {
@@ -391,6 +405,229 @@ const assignWorkoutPlan = async (req, res) => {
     res.status(500).json({
       success: false,
       message: 'Error assigning workout plan',
+      error: error.message
+    });
+  }
+};
+
+// @desc    Unassign workout plan from a member
+// @route   DELETE /api/workout-plans/unassign/:memberId/:planId
+// @access  Private (Trainer only)
+const unassignWorkoutPlan = async (req, res) => {
+  try {
+    const { memberId, planId } = req.params;
+    const trainerId = req.user._id;
+
+    if (req.user.role !== 'trainer') {
+      return res.status(403).json({
+        success: false,
+        message: 'Only trainers can unassign workout plans'
+      });
+    }
+
+    // Check if member exists
+    const member = await User.findOne({
+      _id: memberId,
+      role: 'member'
+    });
+
+    if (!member) {
+      return res.status(404).json({
+        success: false,
+        message: 'Member not found'
+      });
+    }
+
+    // Check if workout plan exists and belongs to trainer
+    const workoutPlan = await WorkoutPlan.findOne({
+      _id: planId,
+      trainerId: trainerId
+    });
+
+    if (!workoutPlan) {
+      return res.status(404).json({
+        success: false,
+        message: 'Workout plan not found or you do not own it'
+      });
+    }
+
+    // Check if member is assigned
+    if (!workoutPlan.assignedMembers.includes(memberId)) {
+      return res.status(400).json({
+        success: false,
+        message: 'This member is not assigned to this workout plan'
+      });
+    }
+
+    // Remove member from assigned list
+    workoutPlan.assignedMembers = workoutPlan.assignedMembers.filter(
+      id => id.toString() !== memberId.toString()
+    );
+    await workoutPlan.save();
+
+    res.status(200).json({
+      success: true,
+      message: `Workout plan "${workoutPlan.planName}" unassigned from ${member.fullName} successfully`,
+      data: {
+        member: {
+          _id: member._id,
+          fullName: member.fullName,
+          email: member.email
+        },
+        workoutPlan: {
+          _id: workoutPlan._id,
+          planName: workoutPlan.planName,
+          planType: workoutPlan.planType
+        }
+      }
+    });
+
+  } catch (error) {
+    console.error('Unassign workout plan error:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Error unassigning workout plan',
+      error: error.message
+    });
+  }
+};
+
+// @desc    Get all members assigned to a workout plan
+// @route   GET /api/workout-plans/:planId/members
+// @access  Private (Trainer only)
+const getAssignedMembers = async (req, res) => {
+  try {
+    const { planId } = req.params;
+    const trainerId = req.user._id;
+
+    if (req.user.role !== 'trainer') {
+      return res.status(403).json({
+        success: false,
+        message: 'Only trainers can view assigned members'
+      });
+    }
+
+    const workoutPlan = await WorkoutPlan.findOne({
+      _id: planId,
+      trainerId: trainerId
+    }).populate('assignedMembers', 'fullName email phone location isActive');
+
+    if (!workoutPlan) {
+      return res.status(404).json({
+        success: false,
+        message: 'Workout plan not found or you do not own it'
+      });
+    }
+
+    res.status(200).json({
+      success: true,
+      count: workoutPlan.assignedMembers.length,
+      data: {
+        planName: workoutPlan.planName,
+        members: workoutPlan.assignedMembers
+      }
+    });
+
+  } catch (error) {
+    console.error('Get assigned members error:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Error fetching assigned members',
+      error: error.message
+    });
+  }
+};
+
+// @desc    Get all workout plans assigned to a member
+// @route   GET /api/workout-plans/member/:memberId
+// @access  Private (Trainer only)
+const getMemberWorkouts = async (req, res) => {
+  try {
+    const { memberId } = req.params;
+    const trainerId = req.user._id;
+
+    if (req.user.role !== 'trainer') {
+      return res.status(403).json({
+        success: false,
+        message: 'Only trainers can view member workouts'
+      });
+    }
+
+    // Check if member exists
+    const member = await User.findOne({
+      _id: memberId,
+      role: 'member'
+    });
+
+    if (!member) {
+      return res.status(404).json({
+        success: false,
+        message: 'Member not found'
+      });
+    }
+
+    // Find all plans assigned to this member that belong to the trainer
+    const workoutPlans = await WorkoutPlan.find({
+      trainerId: trainerId,
+      assignedMembers: memberId
+    }).select('planName planType planLevel planIcon totalSessions sessionsPerWeek workoutDays createdAt');
+
+    res.status(200).json({
+      success: true,
+      count: workoutPlans.length,
+      data: {
+        member: {
+          _id: member._id,
+          fullName: member.fullName,
+          email: member.email
+        },
+        workoutPlans: workoutPlans
+      }
+    });
+
+  } catch (error) {
+    console.error('Get member workouts error:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Error fetching member workouts',
+      error: error.message
+    });
+  }
+};
+
+// @desc    Get my assigned workouts (for members)
+// @route   GET /api/workout-plans/my-workouts
+// @access  Private (Member only)
+const getMyAssignedWorkouts = async (req, res) => {
+  try {
+    const memberId = req.user._id;
+
+    if (req.user.role !== 'member') {
+      return res.status(403).json({
+        success: false,
+        message: 'Only members can view their assigned workouts'
+      });
+    }
+
+    // Find all plans assigned to this member
+    const workoutPlans = await WorkoutPlan.find({
+      assignedMembers: memberId,
+      isActive: true
+    })
+    .populate('trainerId', 'fullName email')
+    .select('planName planType planLevel planIcon totalSessions sessionsPerWeek workoutDays description createdAt');
+
+    res.status(200).json({
+      success: true,
+      count: workoutPlans.length,
+      data: workoutPlans
+    });
+
+  } catch (error) {
+    console.error('Get my assigned workouts error:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Error fetching your workouts',
       error: error.message
     });
   }
@@ -500,6 +737,10 @@ module.exports = {
   updateWorkoutPlan,
   deleteWorkoutPlan,
   assignWorkoutPlan,
+  unassignWorkoutPlan,
+  getAssignedMembers,
+  getMemberWorkouts,
+  getMyAssignedWorkouts,
   getPublicWorkoutPlans,
   rateWorkoutPlan
 };
