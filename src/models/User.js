@@ -31,7 +31,7 @@ const userSchema = new mongoose.Schema({
     enum: ['member', 'trainer', 'administrator'],
     default: 'member'
   },
-  // Profile fields
+  // Profile fields (common)
   phone: {
     type: String,
     trim: true,
@@ -46,6 +46,26 @@ const userSchema = new mongoose.Schema({
     type: String,
     trim: true,
     maxlength: [500, 'Bio cannot exceed 500 characters'],
+    default: null
+  },
+  profilePicture: {
+    type: String,
+    default: null
+  },
+  // Trainer specific fields
+  speciality: {
+    type: String,
+    trim: true,
+    default: null
+  },
+  certifications: {
+    type: String,
+    trim: true,
+    default: null
+  },
+  availability: {
+    type: String,
+    trim: true,
     default: null
   },
   // Member specific details
@@ -63,10 +83,6 @@ const userSchema = new mongoose.Schema({
     },
     medicalConditions: [String],
     fitnessGoals: [String]
-  },
-  profilePicture: {
-    type: String,
-    default: null
   },
   isActive: {
     type: Boolean,

@@ -23,23 +23,28 @@ const getProfile = async (req, res) => {
   }
 };
 
-// @desc    Update member profile
+// @desc    Update profile (works for both member and trainer)
 // @route   PUT /api/profile/update
-// @access  Private (Member only)
+// @access  Private
 const updateProfile = async (req, res) => {
   try {
-    const { fullName, phone, location, bio } = req.body;
+    const { 
+      fullName, 
+      phone, 
+      location, 
+      bio,
+      speciality,
+      certifications,
+      availability
+    } = req.body;
+    
     const userId = req.user._id;
+    const userRole = req.user.role;
 
-    if (req.user.role !== 'member') {
-      return res.status(403).json({
-        success: false,
-        message: 'Only members can update their profile'
-      });
-    }
-
+    // Build update object
     const updateData = {};
 
+    // Full name is required for everyone
     if (!fullName || !fullName.trim()) {
       return res.status(400).json({
         success: false,
@@ -70,6 +75,7 @@ const updateProfile = async (req, res) => {
 
     updateData.fullName = fullName.trim();
 
+    // Common optional fields
     if (phone !== undefined) {
       if (phone && phone.trim()) {
         if (!/^[\d\s\+\-\(\)]{10,15}$/.test(phone.trim())) {
@@ -102,6 +108,55 @@ const updateProfile = async (req, res) => {
       }
     }
 
+    // Trainer specific fields
+    if (userRole === 'trainer') {
+      if (speciality !== undefined) {
+        if (speciality && speciality.trim()) {
+          if (speciality.trim().length > 200) {
+            return res.status(400).json({
+              success: false,
+              message: 'Speciality cannot exceed 200 characters'
+            });
+          }
+          updateData.speciality = speciality.trim();
+        } else {
+          updateData.speciality = null;
+        }
+      }
+
+      if (certifications !== undefined) {
+        if (certifications && certifications.trim()) {
+          if (certifications.trim().length > 500) {
+            return res.status(400).json({
+              success: false,
+              message: 'Certifications cannot exceed 500 characters'
+            });
+          }
+          updateData.certifications = certifications.trim();
+        } else {
+          updateData.certifications = null;
+        }
+      }
+
+      if (availability !== undefined) {
+        if (availability && availability.trim()) {
+          if (availability.trim().length > 500) {
+            return res.status(400).json({
+              success: false,
+              message: 'Availability cannot exceed 500 characters'
+            });
+          }
+          updateData.availability = availability.trim();
+        } else {
+          updateData.availability = null;
+        }
+      }
+    } else {
+      // If member tries to update trainer fields, ignore them
+      // (they won't be in the schema for members anyway)
+    }
+
+    // Update user
     const updatedUser = await User.findByIdAndUpdate(
       userId,
       updateData,
@@ -142,7 +197,6 @@ const deactivateAccount = async (req, res) => {
       });
     }
 
-    // Check if already deactivated
     if (!user.isActive) {
       return res.status(400).json({
         success: false,
@@ -176,7 +230,6 @@ const deleteAccountPermanent = async (req, res) => {
     const userId = req.user._id;
     const { password } = req.body;
 
-    // Require password confirmation for security
     if (!password) {
       return res.status(400).json({
         success: false,
@@ -184,7 +237,6 @@ const deleteAccountPermanent = async (req, res) => {
       });
     }
 
-    // Find user with password
     const user = await User.findById(userId).select('+password');
     if (!user) {
       return res.status(404).json({
@@ -193,7 +245,6 @@ const deleteAccountPermanent = async (req, res) => {
       });
     }
 
-    // Verify password
     const isPasswordValid = await user.comparePassword(password);
     if (!isPasswordValid) {
       return res.status(401).json({
@@ -202,14 +253,11 @@ const deleteAccountPermanent = async (req, res) => {
       });
     }
 
-    // Delete all OTPs associated with this user
     await OTP.deleteMany({ userId: user._id });
 
-    // Get user email for response
     const userEmail = user.email;
     const userRole = user.role;
 
-    // Permanently delete the user
     await User.findByIdAndDelete(userId);
 
     res.status(200).json({
