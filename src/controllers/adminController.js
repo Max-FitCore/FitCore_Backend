@@ -436,16 +436,13 @@ const getAllMembers = async (req, res) => {
       .select('-password')
       .sort({ createdAt: -1 });
 
-    // Get additional stats for each member
     const membersWithStats = await Promise.all(
       members.map(async (member) => {
-        // Count sessions booked by this member
         const bookedSessions = await Session.countDocuments({
           bookedMembers: member._id,
           isActive: true
         });
 
-        // Count workout plans assigned to this member
         const assignedPlans = await WorkoutPlan.countDocuments({
           assignedMembers: member._id,
           isActive: true
@@ -503,7 +500,6 @@ const getMemberById = async (req, res) => {
       });
     }
 
-    // Get member's booked sessions
     const bookedSessions = await Session.find({
       bookedMembers: member._id,
       isActive: true
@@ -511,7 +507,6 @@ const getMemberById = async (req, res) => {
     .populate('trainerId', 'fullName email')
     .select('day time sessionName difficulty');
 
-    // Get member's assigned workout plans
     const assignedPlans = await WorkoutPlan.find({
       assignedMembers: member._id,
       isActive: true
@@ -601,7 +596,6 @@ const addMember = async (req, res) => {
     const salt = await bcrypt.genSalt(10);
     const hashedPassword = await bcrypt.hash(password, salt);
 
-    // Build member details
     const memberDetails = {};
     if (dateOfBirth) memberDetails.dateOfBirth = dateOfBirth;
     if (gender) memberDetails.gender = gender;
@@ -615,7 +609,7 @@ const addMember = async (req, res) => {
       email,
       password: hashedPassword,
       role: 'member',
-      isVerified: true, // Admin-added members are pre-verified
+      isVerified: true,
       phone: phone || null,
       location: location || null,
       bio: bio || null,
@@ -676,22 +670,18 @@ const deleteMember = async (req, res) => {
     const memberName = member.fullName;
     const memberEmail = member.email;
 
-    // Delete all OTPs
     await OTP.deleteMany({ userId: member._id });
 
-    // Remove member from all sessions
     await Session.updateMany(
       { bookedMembers: member._id },
       { $pull: { bookedMembers: member._id } }
     );
 
-    // Remove member from all workout plans
     await WorkoutPlan.updateMany(
       { assignedMembers: member._id },
       { $pull: { assignedMembers: member._id } }
     );
 
-    // Delete the member
     await User.findByIdAndDelete(id);
 
     res.status(200).json({
@@ -800,7 +790,6 @@ const updateMember = async (req, res) => {
       updateData.isActive = isActive;
     }
 
-    // Update member details
     const memberDetails = {};
     if (dateOfBirth !== undefined) memberDetails.dateOfBirth = dateOfBirth;
     if (gender !== undefined) memberDetails.gender = gender;
@@ -836,6 +825,429 @@ const updateMember = async (req, res) => {
     res.status(500).json({
       success: false,
       message: 'Error updating member',
+      error: error.message
+    });
+  }
+};
+
+// ============ CLASS (SESSION) MANAGEMENT ============
+
+// @desc    Get all classes (sessions)
+// @route   GET /api/admin/classes
+// @access  Private (Admin only)
+const getAllClasses = async (req, res) => {
+  try {
+    if (req.user.role !== 'administrator') {
+      return res.status(403).json({
+        success: false,
+        message: 'Access denied. Admin only.'
+      });
+    }
+
+    const classes = await Session.find({ isActive: true })
+      .populate('trainerId', 'fullName email')
+      .populate('bookedMembers', 'fullName email')
+      .sort({ day: 1, time: 1 });
+
+    // Add additional stats
+    const classesWithStats = classes.map(cls => ({
+      ...cls.toObject(),
+      availableSpots: cls.maxParticipants - cls.currentParticipants,
+      participantCount: cls.bookedMembers.length
+    }));
+
+    res.status(200).json({
+      success: true,
+      count: classesWithStats.length,
+      data: classesWithStats
+    });
+
+  } catch (error) {
+    console.error('Get all classes error:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Error fetching classes',
+      error: error.message
+    });
+  }
+};
+
+// @desc    Get a single class by ID
+// @route   GET /api/admin/classes/:id
+// @access  Private (Admin only)
+const getClassById = async (req, res) => {
+  try {
+    const { id } = req.params;
+
+    if (req.user.role !== 'administrator') {
+      return res.status(403).json({
+        success: false,
+        message: 'Access denied. Admin only.'
+      });
+    }
+
+    const classData = await Session.findOne({ 
+      _id: id, 
+      isActive: true 
+    })
+    .populate('trainerId', 'fullName email phone speciality')
+    .populate('bookedMembers', 'fullName email phone location');
+
+    if (!classData) {
+      return res.status(404).json({
+        success: false,
+        message: 'Class not found'
+      });
+    }
+
+    res.status(200).json({
+      success: true,
+      data: {
+        ...classData.toObject(),
+        availableSpots: classData.maxParticipants - classData.currentParticipants
+      }
+    });
+
+  } catch (error) {
+    console.error('Get class by ID error:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Error fetching class',
+      error: error.message
+    });
+  }
+};
+
+// @desc    Add a new class (admin)
+// @route   POST /api/admin/classes/add
+// @access  Private (Admin only)
+const addClass = async (req, res) => {
+  try {
+    const {
+      trainerId,
+      day,
+      time,
+      sessionName,
+      difficulty,
+      description,
+      maxParticipants,
+      duration,
+      location
+    } = req.body;
+
+    if (req.user.role !== 'administrator') {
+      return res.status(403).json({
+        success: false,
+        message: 'Access denied. Admin only.'
+      });
+    }
+
+    // Validate required fields
+    if (!trainerId || !day || !time || !sessionName || !difficulty) {
+      return res.status(400).json({
+        success: false,
+        message: 'Missing required fields: trainerId, day, time, sessionName, difficulty'
+      });
+    }
+
+    // Check if trainer exists and is a trainer
+    const trainer = await User.findOne({
+      _id: trainerId,
+      role: 'trainer',
+      isActive: true
+    });
+
+    if (!trainer) {
+      return res.status(404).json({
+        success: false,
+        message: 'Trainer not found or inactive'
+      });
+    }
+
+    // Check for duplicate session (same trainer, same day, same time)
+    const existingSession = await Session.findOne({
+      trainerId,
+      day,
+      time,
+      isActive: true
+    });
+
+    if (existingSession) {
+      return res.status(400).json({
+        success: false,
+        message: `Trainer already has a class on ${day} at ${time}`
+      });
+    }
+
+    // Create class
+    const newClass = await Session.create({
+      trainerId,
+      day,
+      time,
+      sessionName,
+      difficulty,
+      description: description || null,
+      maxParticipants: maxParticipants || 20,
+      duration: duration || 60,
+      location: location || 'Gym Main Floor'
+    });
+
+    // Populate trainer info for response
+    await newClass.populate('trainerId', 'fullName email');
+
+    res.status(201).json({
+      success: true,
+      message: 'Class created successfully',
+      data: newClass
+    });
+
+  } catch (error) {
+    console.error('Add class error:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Error creating class',
+      error: error.message
+    });
+  }
+};
+
+// @desc    Update a class (admin)
+// @route   PUT /api/admin/classes/:id
+// @access  Private (Admin only)
+const updateClass = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const {
+      trainerId,
+      day,
+      time,
+      sessionName,
+      difficulty,
+      description,
+      maxParticipants,
+      duration,
+      location,
+      isActive
+    } = req.body;
+
+    if (req.user.role !== 'administrator') {
+      return res.status(403).json({
+        success: false,
+        message: 'Access denied. Admin only.'
+      });
+    }
+
+    const classData = await Session.findById(id);
+
+    if (!classData) {
+      return res.status(404).json({
+        success: false,
+        message: 'Class not found'
+      });
+    }
+
+    const updateData = {};
+
+    // If trainerId is being updated, validate the new trainer
+    if (trainerId) {
+      const trainer = await User.findOne({
+        _id: trainerId,
+        role: 'trainer',
+        isActive: true
+      });
+
+      if (!trainer) {
+        return res.status(404).json({
+          success: false,
+          message: 'Trainer not found or inactive'
+        });
+      }
+      updateData.trainerId = trainerId;
+    }
+
+    // If changing day/time, check for conflicts
+    const newDay = day || classData.day;
+    const newTime = time || classData.time;
+    const newTrainerId = trainerId || classData.trainerId;
+
+    if (day || time || trainerId) {
+      const conflict = await Session.findOne({
+        _id: { $ne: id },
+        trainerId: newTrainerId,
+        day: newDay,
+        time: newTime,
+        isActive: true
+      });
+
+      if (conflict) {
+        return res.status(400).json({
+          success: false,
+          message: `Trainer already has a class on ${newDay} at ${newTime}`
+        });
+      }
+    }
+
+    if (day) updateData.day = day;
+    if (time) updateData.time = time;
+    if (sessionName) updateData.sessionName = sessionName;
+    if (difficulty) updateData.difficulty = difficulty;
+    if (description !== undefined) updateData.description = description || null;
+    if (maxParticipants) updateData.maxParticipants = maxParticipants;
+    if (duration) updateData.duration = duration;
+    if (location) updateData.location = location;
+    if (isActive !== undefined) updateData.isActive = isActive;
+
+    const updatedClass = await Session.findByIdAndUpdate(
+      id,
+      updateData,
+      {
+        new: true,
+        runValidators: true
+      }
+    ).populate('trainerId', 'fullName email');
+
+    res.status(200).json({
+      success: true,
+      message: 'Class updated successfully',
+      data: updatedClass
+    });
+
+  } catch (error) {
+    console.error('Update class error:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Error updating class',
+      error: error.message
+    });
+  }
+};
+
+// @desc    Delete a class (admin)
+// @route   DELETE /api/admin/classes/:id
+// @access  Private (Admin only)
+const deleteClass = async (req, res) => {
+  try {
+    const { id } = req.params;
+
+    if (req.user.role !== 'administrator') {
+      return res.status(403).json({
+        success: false,
+        message: 'Access denied. Admin only.'
+      });
+    }
+
+    const classData = await Session.findById(id);
+
+    if (!classData) {
+      return res.status(404).json({
+        success: false,
+        message: 'Class not found'
+      });
+    }
+
+    const className = classData.sessionName;
+    const classDay = classData.day;
+    const classTime = classData.time;
+    const participantCount = classData.bookedMembers.length;
+
+    // Soft delete
+    classData.isActive = false;
+    await classData.save();
+
+    res.status(200).json({
+      success: true,
+      message: `Class "${className}" deleted successfully`,
+      data: {
+        class: {
+          name: className,
+          day: classDay,
+          time: classTime
+        },
+        participants: participantCount
+      }
+    });
+
+  } catch (error) {
+    console.error('Delete class error:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Error deleting class',
+      error: error.message
+    });
+  }
+};
+
+// @desc    Get class statistics (admin)
+// @route   GET /api/admin/classes/stats/overview
+// @access  Private (Admin only)
+const getClassStats = async (req, res) => {
+  try {
+    if (req.user.role !== 'administrator') {
+      return res.status(403).json({
+        success: false,
+        message: 'Access denied. Admin only.'
+      });
+    }
+
+    const totalClasses = await Session.countDocuments({ isActive: true });
+    const totalBookings = await Session.aggregate([
+      { $match: { isActive: true } },
+      { $project: { participantCount: { $size: '$bookedMembers' } } },
+      { $group: { _id: null, total: { $sum: '$participantCount' } } }
+    ]);
+
+    const averageParticipants = totalBookings.length > 0 
+      ? Math.round(totalBookings[0].total / totalClasses) 
+      : 0;
+
+    // Classes by day
+    const classesByDay = await Session.aggregate([
+      { $match: { isActive: true } },
+      { $group: { 
+          _id: '$day', 
+          count: { $sum: 1 },
+          totalParticipants: { $sum: { $size: '$bookedMembers' } }
+        }
+      },
+      { $sort: { _id: 1 } }
+    ]);
+
+    // Popular classes (most booked)
+    const popularClasses = await Session.find({ isActive: true })
+      .populate('trainerId', 'fullName')
+      .select('sessionName day time bookedMembers')
+      .sort({ bookedMembers: -1 })
+      .limit(5);
+
+    res.status(200).json({
+      success: true,
+      data: {
+        overview: {
+          totalClasses,
+          totalBookings: totalBookings.length > 0 ? totalBookings[0].total : 0,
+          averageParticipants: averageParticipants || 0
+        },
+        byDay: classesByDay.map(day => ({
+          day: day._id,
+          count: day.count,
+          totalParticipants: day.totalParticipants
+        })),
+        popularClasses: popularClasses.map(cls => ({
+          _id: cls._id,
+          sessionName: cls.sessionName,
+          day: cls.day,
+          time: cls.time,
+          trainer: cls.trainerId.fullName,
+          bookings: cls.bookedMembers.length
+        }))
+      }
+    });
+
+  } catch (error) {
+    console.error('Class stats error:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Error fetching class statistics',
       error: error.message
     });
   }
@@ -923,6 +1335,13 @@ module.exports = {
   addMember,
   deleteMember,
   updateMember,
+  // Class management
+  getAllClasses,
+  getClassById,
+  addClass,
+  updateClass,
+  deleteClass,
+  getClassStats,
   // Dashboard
   getDashboardStats
 };
