@@ -4,12 +4,13 @@ const Session = require('../models/Session');
 const WorkoutPlan = require('../models/WorkoutPlan');
 const bcrypt = require('bcryptjs');
 
+// ============ TRAINER MANAGEMENT ============
+
 // @desc    Get all trainers
 // @route   GET /api/admin/trainers
 // @access  Private (Admin only)
 const getAllTrainers = async (req, res) => {
   try {
-    // Check if user is admin
     if (req.user.role !== 'administrator') {
       return res.status(403).json({
         success: false,
@@ -21,7 +22,6 @@ const getAllTrainers = async (req, res) => {
       .select('-password')
       .sort({ createdAt: -1 });
 
-    // Get additional stats for each trainer
     const trainersWithStats = await Promise.all(
       trainers.map(async (trainer) => {
         const sessionCount = await Session.countDocuments({ 
@@ -93,13 +93,11 @@ const getTrainerById = async (req, res) => {
       });
     }
 
-    // Get trainer's sessions
     const sessions = await Session.find({ 
       trainerId: trainer._id,
       isActive: true 
     }).select('day time sessionName difficulty currentParticipants maxParticipants');
 
-    // Get trainer's workout plans
     const workoutPlans = await WorkoutPlan.find({ 
       trainerId: trainer._id,
       isActive: true 
@@ -153,7 +151,6 @@ const addTrainer = async (req, res) => {
       });
     }
 
-    // Validate required fields
     if (!fullName || !email || !password) {
       return res.status(400).json({
         success: false,
@@ -161,7 +158,6 @@ const addTrainer = async (req, res) => {
       });
     }
 
-    // Check if user already exists
     const existingUser = await User.findOne({ email });
     if (existingUser) {
       return res.status(400).json({
@@ -170,7 +166,6 @@ const addTrainer = async (req, res) => {
       });
     }
 
-    // Validate password strength
     if (password.length < 6) {
       return res.status(400).json({
         success: false,
@@ -185,17 +180,15 @@ const addTrainer = async (req, res) => {
       });
     }
 
-    // Hash password
     const salt = await bcrypt.genSalt(10);
     const hashedPassword = await bcrypt.hash(password, salt);
 
-    // Create trainer
     const trainer = await User.create({
       fullName,
       email,
       password: hashedPassword,
       role: 'trainer',
-      isVerified: true, // Admin-added trainers are pre-verified
+      isVerified: true,
       phone: phone || null,
       location: location || null,
       bio: bio || null,
@@ -204,7 +197,6 @@ const addTrainer = async (req, res) => {
       availability: availability || null
     });
 
-    // Remove password from response
     trainer.password = undefined;
 
     res.status(201).json({
@@ -237,7 +229,6 @@ const deleteTrainer = async (req, res) => {
       });
     }
 
-    // Don't allow admin to delete themselves
     if (id === req.user._id.toString()) {
       return res.status(400).json({
         success: false,
@@ -257,20 +248,12 @@ const deleteTrainer = async (req, res) => {
       });
     }
 
-    // Get trainer info before deletion
     const trainerName = trainer.fullName;
     const trainerEmail = trainer.email;
 
-    // Delete all OTPs associated with this trainer
     await OTP.deleteMany({ userId: trainer._id });
-
-    // Delete all sessions created by this trainer
     const sessionResult = await Session.deleteMany({ trainerId: trainer._id });
-
-    // Delete all workout plans created by this trainer
     const planResult = await WorkoutPlan.deleteMany({ trainerId: trainer._id });
-
-    // Delete the trainer
     await User.findByIdAndDelete(id);
 
     res.status(200).json({
@@ -334,7 +317,6 @@ const updateTrainer = async (req, res) => {
       });
     }
 
-    // Build update object
     const updateData = {};
 
     if (fullName !== undefined) {
@@ -436,6 +418,431 @@ const updateTrainer = async (req, res) => {
   }
 };
 
+// ============ MEMBER MANAGEMENT ============
+
+// @desc    Get all members
+// @route   GET /api/admin/members
+// @access  Private (Admin only)
+const getAllMembers = async (req, res) => {
+  try {
+    if (req.user.role !== 'administrator') {
+      return res.status(403).json({
+        success: false,
+        message: 'Access denied. Admin only.'
+      });
+    }
+
+    const members = await User.find({ role: 'member' })
+      .select('-password')
+      .sort({ createdAt: -1 });
+
+    // Get additional stats for each member
+    const membersWithStats = await Promise.all(
+      members.map(async (member) => {
+        // Count sessions booked by this member
+        const bookedSessions = await Session.countDocuments({
+          bookedMembers: member._id,
+          isActive: true
+        });
+
+        // Count workout plans assigned to this member
+        const assignedPlans = await WorkoutPlan.countDocuments({
+          assignedMembers: member._id,
+          isActive: true
+        });
+
+        return {
+          ...member.toObject(),
+          stats: {
+            totalBookedSessions: bookedSessions,
+            totalAssignedPlans: assignedPlans
+          }
+        };
+      })
+    );
+
+    res.status(200).json({
+      success: true,
+      count: membersWithStats.length,
+      data: membersWithStats
+    });
+
+  } catch (error) {
+    console.error('Get all members error:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Error fetching members',
+      error: error.message
+    });
+  }
+};
+
+// @desc    Get a single member by ID
+// @route   GET /api/admin/members/:id
+// @access  Private (Admin only)
+const getMemberById = async (req, res) => {
+  try {
+    const { id } = req.params;
+
+    if (req.user.role !== 'administrator') {
+      return res.status(403).json({
+        success: false,
+        message: 'Access denied. Admin only.'
+      });
+    }
+
+    const member = await User.findOne({ 
+      _id: id, 
+      role: 'member' 
+    }).select('-password');
+
+    if (!member) {
+      return res.status(404).json({
+        success: false,
+        message: 'Member not found'
+      });
+    }
+
+    // Get member's booked sessions
+    const bookedSessions = await Session.find({
+      bookedMembers: member._id,
+      isActive: true
+    })
+    .populate('trainerId', 'fullName email')
+    .select('day time sessionName difficulty');
+
+    // Get member's assigned workout plans
+    const assignedPlans = await WorkoutPlan.find({
+      assignedMembers: member._id,
+      isActive: true
+    })
+    .populate('trainerId', 'fullName email')
+    .select('planName planType planLevel totalSessions');
+
+    res.status(200).json({
+      success: true,
+      data: {
+        member,
+        stats: {
+          totalBookedSessions: bookedSessions.length,
+          totalAssignedPlans: assignedPlans.length
+        },
+        bookedSessions,
+        assignedPlans
+      }
+    });
+
+  } catch (error) {
+    console.error('Get member by ID error:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Error fetching member',
+      error: error.message
+    });
+  }
+};
+
+// @desc    Add a new member
+// @route   POST /api/admin/members/add
+// @access  Private (Admin only)
+const addMember = async (req, res) => {
+  try {
+    const {
+      fullName,
+      email,
+      password,
+      phone,
+      location,
+      bio,
+      dateOfBirth,
+      gender,
+      address,
+      emergencyContact,
+      medicalConditions,
+      fitnessGoals
+    } = req.body;
+
+    if (req.user.role !== 'administrator') {
+      return res.status(403).json({
+        success: false,
+        message: 'Access denied. Admin only.'
+      });
+    }
+
+    if (!fullName || !email || !password) {
+      return res.status(400).json({
+        success: false,
+        message: 'Full name, email, and password are required'
+      });
+    }
+
+    const existingUser = await User.findOne({ email });
+    if (existingUser) {
+      return res.status(400).json({
+        success: false,
+        message: 'User already exists with this email'
+      });
+    }
+
+    if (password.length < 6) {
+      return res.status(400).json({
+        success: false,
+        message: 'Password must be at least 6 characters'
+      });
+    }
+
+    if (!/^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)/.test(password)) {
+      return res.status(400).json({
+        success: false,
+        message: 'Password must contain at least one uppercase letter, one lowercase letter, and one number'
+      });
+    }
+
+    const salt = await bcrypt.genSalt(10);
+    const hashedPassword = await bcrypt.hash(password, salt);
+
+    // Build member details
+    const memberDetails = {};
+    if (dateOfBirth) memberDetails.dateOfBirth = dateOfBirth;
+    if (gender) memberDetails.gender = gender;
+    if (address) memberDetails.address = address;
+    if (emergencyContact) memberDetails.emergencyContact = emergencyContact;
+    if (medicalConditions) memberDetails.medicalConditions = medicalConditions;
+    if (fitnessGoals) memberDetails.fitnessGoals = fitnessGoals;
+
+    const member = await User.create({
+      fullName,
+      email,
+      password: hashedPassword,
+      role: 'member',
+      isVerified: true, // Admin-added members are pre-verified
+      phone: phone || null,
+      location: location || null,
+      bio: bio || null,
+      memberDetails: Object.keys(memberDetails).length > 0 ? memberDetails : undefined
+    });
+
+    member.password = undefined;
+
+    res.status(201).json({
+      success: true,
+      message: 'Member added successfully',
+      data: member
+    });
+
+  } catch (error) {
+    console.error('Add member error:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Error adding member',
+      error: error.message
+    });
+  }
+};
+
+// @desc    Delete a member (permanently)
+// @route   DELETE /api/admin/members/:id
+// @access  Private (Admin only)
+const deleteMember = async (req, res) => {
+  try {
+    const { id } = req.params;
+
+    if (req.user.role !== 'administrator') {
+      return res.status(403).json({
+        success: false,
+        message: 'Access denied. Admin only.'
+      });
+    }
+
+    if (id === req.user._id.toString()) {
+      return res.status(400).json({
+        success: false,
+        message: 'You cannot delete your own account'
+      });
+    }
+
+    const member = await User.findOne({ 
+      _id: id, 
+      role: 'member' 
+    });
+
+    if (!member) {
+      return res.status(404).json({
+        success: false,
+        message: 'Member not found'
+      });
+    }
+
+    const memberName = member.fullName;
+    const memberEmail = member.email;
+
+    // Delete all OTPs
+    await OTP.deleteMany({ userId: member._id });
+
+    // Remove member from all sessions
+    await Session.updateMany(
+      { bookedMembers: member._id },
+      { $pull: { bookedMembers: member._id } }
+    );
+
+    // Remove member from all workout plans
+    await WorkoutPlan.updateMany(
+      { assignedMembers: member._id },
+      { $pull: { assignedMembers: member._id } }
+    );
+
+    // Delete the member
+    await User.findByIdAndDelete(id);
+
+    res.status(200).json({
+      success: true,
+      message: `Member "${memberName}" deleted successfully`,
+      data: {
+        member: {
+          name: memberName,
+          email: memberEmail
+        }
+      }
+    });
+
+  } catch (error) {
+    console.error('Delete member error:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Error deleting member',
+      error: error.message
+    });
+  }
+};
+
+// @desc    Update a member (admin)
+// @route   PUT /api/admin/members/:id
+// @access  Private (Admin only)
+const updateMember = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const {
+      fullName,
+      phone,
+      location,
+      bio,
+      isActive,
+      dateOfBirth,
+      gender,
+      address,
+      emergencyContact,
+      medicalConditions,
+      fitnessGoals
+    } = req.body;
+
+    if (req.user.role !== 'administrator') {
+      return res.status(403).json({
+        success: false,
+        message: 'Access denied. Admin only.'
+      });
+    }
+
+    const member = await User.findOne({ 
+      _id: id, 
+      role: 'member' 
+    });
+
+    if (!member) {
+      return res.status(404).json({
+        success: false,
+        message: 'Member not found'
+      });
+    }
+
+    const updateData = {};
+
+    if (fullName !== undefined) {
+      if (!fullName || !fullName.trim()) {
+        return res.status(400).json({
+          success: false,
+          message: 'Full name is required'
+        });
+      }
+      if (fullName.trim().length < 2) {
+        return res.status(400).json({
+          success: false,
+          message: 'Full name must be at least 2 characters'
+        });
+      }
+      if (fullName.trim().length > 50) {
+        return res.status(400).json({
+          success: false,
+          message: 'Full name cannot exceed 50 characters'
+        });
+      }
+      updateData.fullName = fullName.trim();
+    }
+
+    if (phone !== undefined) {
+      updateData.phone = phone && phone.trim() ? phone.trim() : null;
+    }
+
+    if (location !== undefined) {
+      updateData.location = location && location.trim() ? location.trim() : null;
+    }
+
+    if (bio !== undefined) {
+      if (bio && bio.trim() && bio.trim().length > 500) {
+        return res.status(400).json({
+          success: false,
+          message: 'Bio cannot exceed 500 characters'
+        });
+      }
+      updateData.bio = bio && bio.trim() ? bio.trim() : null;
+    }
+
+    if (isActive !== undefined) {
+      updateData.isActive = isActive;
+    }
+
+    // Update member details
+    const memberDetails = {};
+    if (dateOfBirth !== undefined) memberDetails.dateOfBirth = dateOfBirth;
+    if (gender !== undefined) memberDetails.gender = gender;
+    if (address !== undefined) memberDetails.address = address;
+    if (emergencyContact !== undefined) memberDetails.emergencyContact = emergencyContact;
+    if (medicalConditions !== undefined) memberDetails.medicalConditions = medicalConditions;
+    if (fitnessGoals !== undefined) memberDetails.fitnessGoals = fitnessGoals;
+
+    if (Object.keys(memberDetails).length > 0) {
+      updateData.memberDetails = {
+        ...member.memberDetails,
+        ...memberDetails
+      };
+    }
+
+    const updatedMember = await User.findByIdAndUpdate(
+      id,
+      updateData,
+      {
+        new: true,
+        runValidators: true
+      }
+    ).select('-password');
+
+    res.status(200).json({
+      success: true,
+      message: 'Member updated successfully',
+      data: updatedMember
+    });
+
+  } catch (error) {
+    console.error('Update member error:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Error updating member',
+      error: error.message
+    });
+  }
+};
+
+// ============ DASHBOARD ============
+
 // @desc    Get admin dashboard stats
 // @route   GET /api/admin/dashboard
 // @access  Private (Admin only)
@@ -457,7 +864,6 @@ const getDashboardStats = async (req, res) => {
       bookedMembers: { $exists: true, $ne: [] }
     });
 
-    // Recent activity
     const recentTrainers = await User.find({ role: 'trainer' })
       .select('fullName email createdAt')
       .sort({ createdAt: -1 })
@@ -505,10 +911,18 @@ const getDashboardStats = async (req, res) => {
 };
 
 module.exports = {
+  // Trainer management
   getAllTrainers,
   getTrainerById,
   addTrainer,
   deleteTrainer,
   updateTrainer,
+  // Member management
+  getAllMembers,
+  getMemberById,
+  addMember,
+  deleteMember,
+  updateMember,
+  // Dashboard
   getDashboardStats
 };

@@ -2,11 +2,19 @@ const express = require('express');
 const router = express.Router();
 const protect = require('../middleware/auth');
 const {
+  // Trainer management
   getAllTrainers,
   getTrainerById,
   addTrainer,
   deleteTrainer,
   updateTrainer,
+  // Member management
+  getAllMembers,
+  getMemberById,
+  addMember,
+  deleteMember,
+  updateMember,
+  // Dashboard
   getDashboardStats
 } = require('../controllers/adminController');
 
@@ -22,5 +30,12 @@ router.get('/trainers/:id', getTrainerById);
 router.post('/trainers/add', addTrainer);
 router.put('/trainers/:id', updateTrainer);
 router.delete('/trainers/:id', deleteTrainer);
+
+// Member management
+router.get('/members', getAllMembers);
+router.get('/members/:id', getMemberById);
+router.post('/members/add', addMember);
+router.put('/members/:id', updateMember);
+router.delete('/members/:id', deleteMember);
 
 module.exports = router;
