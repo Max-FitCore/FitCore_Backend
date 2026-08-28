@@ -18,6 +18,7 @@ app.use('/api/workout-plans', require('./routes/workoutPlanRoutes'));
 app.use('/api/sessions', require('./routes/sessionRoutes'));
 app.use('/api/admin', require('./routes/adminRoutes'));
 app.use('/api/membership-plans', require('./routes/membershipPlanRoutes'));
+app.use('/api/membership', require('./routes/membershipRoutes'));
 
 // Health check
 app.get('/api/health', (req, res) => {
