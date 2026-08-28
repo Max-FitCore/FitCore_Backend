@@ -1145,25 +1145,39 @@ const deleteClass = async (req, res) => {
       });
     }
 
-    const className = classData.sessionName;
-    const classDay = classData.day;
-    const classTime = classData.time;
-    const participantCount = classData.bookedMembers.length;
+    // Get class info before deletion for response
+    const classInfo = {
+      className: classData.sessionName,
+      day: classData.day,
+      time: classData.time,
+      trainerId: classData.trainerId,
+      bookedMembersCount: classData.bookedMembers.length,
+      bookedMembers: classData.bookedMembers
+    };
 
-    // Soft delete
-    classData.isActive = false;
-    await classData.save();
+    // Get trainer info
+    const trainer = await User.findById(classInfo.trainerId).select('fullName email');
+
+    // Permanently delete the class from database
+    await Session.findByIdAndDelete(id);
 
     res.status(200).json({
       success: true,
-      message: `Class "${className}" deleted successfully`,
+      message: `Class "${classInfo.className}" deleted successfully`,
       data: {
         class: {
-          name: className,
-          day: classDay,
-          time: classTime
+          name: classInfo.className,
+          day: classInfo.day,
+          time: classInfo.time,
+          trainer: trainer ? {
+            name: trainer.fullName,
+            email: trainer.email
+          } : 'Trainer not found'
         },
-        participants: participantCount
+        affectedMembers: classInfo.bookedMembersCount,
+        note: classInfo.bookedMembersCount > 0 
+          ? `${classInfo.bookedMembersCount} member(s) were booked for this class and have been automatically unassigned.`
+          : 'No members were booked for this class.'
       }
     });
 

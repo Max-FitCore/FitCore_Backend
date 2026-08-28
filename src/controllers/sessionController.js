@@ -276,13 +276,32 @@ const deleteSession = async (req, res) => {
       });
     }
 
-    // Soft delete
-    session.isActive = false;
-    await session.save();
+    // Get session info before deletion for response
+    const sessionInfo = {
+      sessionName: session.sessionName,
+      day: session.day,
+      time: session.time,
+      bookedMembersCount: session.bookedMembers.length,
+      bookedMembers: session.bookedMembers
+    };
+
+    // Permanently delete the session from database
+    await Session.findByIdAndDelete(id);
 
     res.status(200).json({
       success: true,
-      message: 'Session deleted successfully'
+      message: `Session "${sessionInfo.sessionName}" deleted successfully`,
+      data: {
+        session: {
+          name: sessionInfo.sessionName,
+          day: sessionInfo.day,
+          time: sessionInfo.time
+        },
+        affectedMembers: sessionInfo.bookedMembersCount,
+        note: sessionInfo.bookedMembersCount > 0 
+          ? `${sessionInfo.bookedMembersCount} member(s) were booked for this session and have been automatically unassigned.`
+          : 'No members were booked for this session.'
+      }
     });
 
   } catch (error) {
