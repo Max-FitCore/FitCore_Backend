@@ -52,6 +52,27 @@ const userSchema = new mongoose.Schema({
     type: String,
     default: null
   },
+  // Admin specific fields
+  gymName: {
+    type: String,
+    trim: true,
+    default: null
+  },
+  address: {
+    type: String,
+    trim: true,
+    default: null
+  },
+  openingHours: {
+    type: String,
+    trim: true,
+    default: null
+  },
+  about: {
+    type: String,
+    trim: true,
+    default: null
+  },
   // Trainer specific fields
   speciality: {
     type: String,

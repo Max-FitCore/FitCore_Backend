@@ -23,7 +23,7 @@ const getProfile = async (req, res) => {
   }
 };
 
-// @desc    Update profile (works for both member and trainer)
+// @desc    Update profile (works for member, trainer, and admin)
 // @route   PUT /api/profile/update
 // @access  Private
 const updateProfile = async (req, res) => {
@@ -33,6 +33,12 @@ const updateProfile = async (req, res) => {
       phone, 
       location, 
       bio,
+      // Admin fields
+      gymName,
+      address,
+      openingHours,
+      about,
+      // Trainer fields
       speciality,
       certifications,
       availability
@@ -108,6 +114,65 @@ const updateProfile = async (req, res) => {
       }
     }
 
+    // Admin specific fields
+    if (userRole === 'administrator') {
+      if (gymName !== undefined) {
+        if (gymName && gymName.trim()) {
+          if (gymName.trim().length > 100) {
+            return res.status(400).json({
+              success: false,
+              message: 'Gym name cannot exceed 100 characters'
+            });
+          }
+          updateData.gymName = gymName.trim();
+        } else {
+          updateData.gymName = null;
+        }
+      }
+
+      if (address !== undefined) {
+        if (address && address.trim()) {
+          if (address.trim().length > 200) {
+            return res.status(400).json({
+              success: false,
+              message: 'Address cannot exceed 200 characters'
+            });
+          }
+          updateData.address = address.trim();
+        } else {
+          updateData.address = null;
+        }
+      }
+
+      if (openingHours !== undefined) {
+        if (openingHours && openingHours.trim()) {
+          if (openingHours.trim().length > 200) {
+            return res.status(400).json({
+              success: false,
+              message: 'Opening hours cannot exceed 200 characters'
+            });
+          }
+          updateData.openingHours = openingHours.trim();
+        } else {
+          updateData.openingHours = null;
+        }
+      }
+
+      if (about !== undefined) {
+        if (about && about.trim()) {
+          if (about.trim().length > 1000) {
+            return res.status(400).json({
+              success: false,
+              message: 'About cannot exceed 1000 characters'
+            });
+          }
+          updateData.about = about.trim();
+        } else {
+          updateData.about = null;
+        }
+      }
+    }
+
     // Trainer specific fields
     if (userRole === 'trainer') {
       if (speciality !== undefined) {
@@ -151,9 +216,6 @@ const updateProfile = async (req, res) => {
           updateData.availability = null;
         }
       }
-    } else {
-      // If member tries to update trainer fields, ignore them
-      // (they won't be in the schema for members anyway)
     }
 
     // Update user
