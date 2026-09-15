@@ -25,6 +25,14 @@ const {
   getDashboardStats
 } = require('../controllers/adminController');
 
+const {
+  createMembershipPlan,
+  getAllMembershipPlans,
+  getMembershipPlanById,
+  updateMembershipPlan,
+  deleteMembershipPlan,
+} = require('../controllers/membershipPlanController');
+
 // All admin routes require authentication
 router.use(protect);
 
@@ -52,5 +60,15 @@ router.get('/classes/:id', getClassById);
 router.post('/classes/add', addClass);
 router.put('/classes/:id', updateClass);
 router.delete('/classes/:id', deleteClass);
+
+// -----------------------------------------------------------
+// Membership plans (admin)
+// Full paths: /api/admin/membership-plans
+// -----------------------------------------------------------
+router.get('/membership-plans', protect, getAllMembershipPlans);
+router.post('/membership-plans', protect, createMembershipPlan);
+router.get('/membership-plans/:id', protect, getMembershipPlanById);
+router.put('/membership-plans/:id', protect, updateMembershipPlan);
+router.delete('/membership-plans/:id', protect, deleteMembershipPlan);
 
 module.exports = router;
