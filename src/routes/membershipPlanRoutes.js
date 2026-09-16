@@ -11,7 +11,7 @@ const {
 } = require('../controllers/membershipPlanController');
 
 // Public routes (for members)
-router.get('/public', getPublicMembershipPlans);
+router.get('/', getPublicMembershipPlans);
 
 // Admin routes (require authentication and admin role)
 router.use(protect);
