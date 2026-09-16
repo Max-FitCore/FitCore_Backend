@@ -32,7 +32,7 @@ router.get('/:planId/members', getAssignedMembers);
 router.get('/member/:memberId', getMemberWorkouts);
 
 // Assignment routes (trainer only)
-router.post('/assign/:memberId', assignWorkoutPlan);
+router.post('/assign/:planId', assignWorkoutPlan);
 router.delete('/unassign/:memberId/:planId', unassignWorkoutPlan);
 
 // General routes (with access control)

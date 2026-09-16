@@ -19,7 +19,6 @@ const createWorkoutPlan = async (req, res) => {
 
     const trainerId = req.user._id;
 
-    // Check if user is a trainer
     if (req.user.role !== 'trainer') {
       return res.status(403).json({
         success: false,
@@ -27,7 +26,6 @@ const createWorkoutPlan = async (req, res) => {
       });
     }
 
-    // Validate required fields
     if (!planName || !planType || !planLevel || !totalSessions || !sessionsPerWeek) {
       return res.status(400).json({
         success: false,
@@ -35,7 +33,6 @@ const createWorkoutPlan = async (req, res) => {
       });
     }
 
-    // Validate workoutDays
     if (!workoutDays || !Array.isArray(workoutDays) || workoutDays.length === 0) {
       return res.status(400).json({
         success: false,
@@ -43,7 +40,6 @@ const createWorkoutPlan = async (req, res) => {
       });
     }
 
-    // Validate each workout day
     for (const day of workoutDays) {
       if (!day.day) {
         return res.status(400).json({
@@ -63,7 +59,6 @@ const createWorkoutPlan = async (req, res) => {
           message: `Day ${day.day} must have at least one exercise`
         });
       }
-      // Validate each exercise is a string
       for (const exercise of day.exercises) {
         if (typeof exercise !== 'string' || !exercise.trim()) {
           return res.status(400).json({
@@ -74,7 +69,6 @@ const createWorkoutPlan = async (req, res) => {
       }
     }
 
-    // Create workout plan
     const workoutPlan = await WorkoutPlan.create({
       trainerId,
       planName,
@@ -152,7 +146,6 @@ const getWorkoutPlanById = async (req, res) => {
       });
     }
 
-    // Check if user has access (trainer owns it or member is assigned)
     if (req.user.role === 'trainer' && workoutPlan.trainerId.toString() !== req.user._id.toString()) {
       return res.status(403).json({
         success: false,
@@ -211,7 +204,6 @@ const updateWorkoutPlan = async (req, res) => {
       });
     }
 
-    // Check if trainer owns this plan
     if (workoutPlan.trainerId.toString() !== trainerId.toString()) {
       return res.status(403).json({
         success: false,
@@ -221,7 +213,6 @@ const updateWorkoutPlan = async (req, res) => {
 
     const updateData = req.body;
 
-    // Validate workoutDays if provided
     if (updateData.workoutDays) {
       if (!Array.isArray(updateData.workoutDays) || updateData.workoutDays.length === 0) {
         return res.status(400).json({
@@ -320,15 +311,16 @@ const deleteWorkoutPlan = async (req, res) => {
   }
 };
 
-// @desc    Assign workout plan to a member
-// @route   POST /api/workout-plans/assign/:memberId
+// @desc    Assign workout plan to one or multiple members
+// @route   POST /api/workout-plans/assign/:planId
 // @access  Private (Trainer only)
 const assignWorkoutPlan = async (req, res) => {
   try {
-    const { memberId } = req.params;
-    const { planId } = req.body;
+    const { planId } = req.params;
+    const { memberIds } = req.body;
     const trainerId = req.user._id;
 
+    // Check if user is a trainer
     if (req.user.role !== 'trainer') {
       return res.status(403).json({
         success: false,
@@ -336,24 +328,39 @@ const assignWorkoutPlan = async (req, res) => {
       });
     }
 
+    // Validate planId
     if (!planId) {
       return res.status(400).json({
         success: false,
-        message: 'Plan ID is required in the body'
+        message: 'Plan ID is required in the URL'
       });
     }
 
-    // Check if member exists and is a member
-    const member = await User.findOne({
-      _id: memberId,
-      role: 'member',
-      isActive: true
-    });
-
-    if (!member) {
-      return res.status(404).json({
+    // Validate memberIds
+    if (!memberIds) {
+      return res.status(400).json({
         success: false,
-        message: 'Member not found or inactive'
+        message: 'memberIds is required in the body'
+      });
+    }
+
+    // Support both single string and array
+    let memberIdsArray;
+    if (Array.isArray(memberIds)) {
+      memberIdsArray = memberIds;
+    } else if (typeof memberIds === 'string') {
+      memberIdsArray = [memberIds];
+    } else {
+      return res.status(400).json({
+        success: false,
+        message: 'memberIds must be a string or an array of strings'
+      });
+    }
+
+    if (memberIdsArray.length === 0) {
+      return res.status(400).json({
+        success: false,
+        message: 'At least one member ID is required'
       });
     }
 
@@ -370,33 +377,95 @@ const assignWorkoutPlan = async (req, res) => {
       });
     }
 
-    // Check if already assigned
-    if (workoutPlan.assignedMembers.includes(memberId)) {
+    // Verify all members exist and are actually members
+    const members = await User.find({
+      _id: { $in: memberIdsArray },
+      role: 'member',
+      isActive: true
+    });
+
+    // Find which member IDs are invalid
+    const foundMemberIds = members.map(m => m._id.toString());
+    const invalidMemberIds = memberIdsArray.filter(
+      id => !foundMemberIds.includes(id.toString())
+    );
+
+    if (invalidMemberIds.length > 0) {
       return res.status(400).json({
         success: false,
-        message: 'This workout plan is already assigned to the member'
+        message: 'Some member IDs are invalid, inactive, or not members',
+        invalidMemberIds
       });
     }
 
-    // Assign member to plan
-    workoutPlan.assignedMembers.push(memberId);
+    // Get currently assigned members
+    const existingMemberIds = workoutPlan.assignedMembers.map(id => id.toString());
+
+    // Separate into new assignments and already assigned
+    const alreadyAssigned = memberIdsArray.filter(id =>
+      existingMemberIds.includes(id.toString())
+    );
+
+    const newMemberIds = memberIdsArray.filter(id =>
+      !existingMemberIds.includes(id.toString())
+    );
+
+    // If no new members to add
+    if (newMemberIds.length === 0) {
+      return res.status(400).json({
+        success: false,
+        message: 'All specified members are already assigned to this plan',
+        alreadyAssigned: members.filter(m =>
+          alreadyAssigned.includes(m._id.toString())
+        ).map(m => ({
+          _id: m._id,
+          fullName: m.fullName,
+          email: m.email
+        }))
+      });
+    }
+
+    // Add new members to the plan
+    workoutPlan.assignedMembers.push(...newMemberIds);
     await workoutPlan.save();
+
+    // Prepare response data
+    const newlyAssignedMembers = members.filter(m =>
+      newMemberIds.includes(m._id.toString())
+    ).map(m => ({
+      _id: m._id,
+      fullName: m.fullName,
+      email: m.email
+    }));
+
+    const alreadyAssignedMembers = members.filter(m =>
+      alreadyAssigned.includes(m._id.toString())
+    ).map(m => ({
+      _id: m._id,
+      fullName: m.fullName,
+      email: m.email
+    }));
 
     res.status(200).json({
       success: true,
-      message: `Workout plan "${workoutPlan.planName}" assigned to ${member.fullName} successfully`,
+      message: `Workout plan "${workoutPlan.planName}" assigned to ${newlyAssignedMembers.length} member(s) successfully`,
       data: {
-        member: {
-          _id: member._id,
-          fullName: member.fullName,
-          email: member.email
-        },
         workoutPlan: {
           _id: workoutPlan._id,
           planName: workoutPlan.planName,
           planType: workoutPlan.planType,
           planLevel: workoutPlan.planLevel
-        }
+        },
+        summary: {
+          totalRequested: memberIdsArray.length,
+          newlyAssigned: newlyAssignedMembers.length,
+          alreadyAssigned: alreadyAssignedMembers.length,
+          totalAssignedNow: workoutPlan.assignedMembers.length
+        },
+        newlyAssignedMembers,
+        alreadyAssignedMembers: alreadyAssignedMembers.length > 0 
+          ? alreadyAssignedMembers 
+          : []
       }
     });
 
@@ -425,7 +494,6 @@ const unassignWorkoutPlan = async (req, res) => {
       });
     }
 
-    // Check if member exists
     const member = await User.findOne({
       _id: memberId,
       role: 'member'
@@ -438,7 +506,6 @@ const unassignWorkoutPlan = async (req, res) => {
       });
     }
 
-    // Check if workout plan exists and belongs to trainer
     const workoutPlan = await WorkoutPlan.findOne({
       _id: planId,
       trainerId: trainerId
@@ -451,7 +518,6 @@ const unassignWorkoutPlan = async (req, res) => {
       });
     }
 
-    // Check if member is assigned
     if (!workoutPlan.assignedMembers.includes(memberId)) {
       return res.status(400).json({
         success: false,
@@ -459,7 +525,6 @@ const unassignWorkoutPlan = async (req, res) => {
       });
     }
 
-    // Remove member from assigned list
     workoutPlan.assignedMembers = workoutPlan.assignedMembers.filter(
       id => id.toString() !== memberId.toString()
     );
@@ -553,7 +618,6 @@ const getMemberWorkouts = async (req, res) => {
       });
     }
 
-    // Check if member exists
     const member = await User.findOne({
       _id: memberId,
       role: 'member'
@@ -566,7 +630,6 @@ const getMemberWorkouts = async (req, res) => {
       });
     }
 
-    // Find all plans assigned to this member that belong to the trainer
     const workoutPlans = await WorkoutPlan.find({
       trainerId: trainerId,
       assignedMembers: memberId
@@ -609,7 +672,6 @@ const getMyAssignedWorkouts = async (req, res) => {
       });
     }
 
-    // Find all plans assigned to this member
     const workoutPlans = await WorkoutPlan.find({
       assignedMembers: memberId,
       isActive: true
@@ -693,7 +755,6 @@ const rateWorkoutPlan = async (req, res) => {
       });
     }
 
-    // Check if member is assigned to this plan
     const isAssigned = workoutPlan.assignedMembers.some(
       memberId => memberId.toString() === req.user._id.toString()
     );
@@ -705,7 +766,6 @@ const rateWorkoutPlan = async (req, res) => {
       });
     }
 
-    // Update rating
     const currentTotal = workoutPlan.rating * workoutPlan.totalRatings;
     workoutPlan.totalRatings += 1;
     workoutPlan.rating = (currentTotal + rating) / workoutPlan.totalRatings;
