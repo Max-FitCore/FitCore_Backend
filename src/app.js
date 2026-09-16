@@ -11,7 +11,7 @@ app.use(cors());
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
-// Public routes (no auth required) - MUST be before protected routes
+// Public routes (no auth required)
 app.use('/api/public', require('./routes/publicRoutes'));
 
 // Protected routes
@@ -23,6 +23,7 @@ app.use('/api/admin', require('./routes/adminRoutes'));
 app.use('/api/membership-plans', require('./routes/membershipPlanRoutes'));
 app.use('/api/membership', require('./routes/membershipRoutes'));
 app.use('/api/payment-methods', require('./routes/paymentMethodRoutes'));
+app.use('/api/member-dashboard', require('./routes/memberDashboardRoutes'));
 
 // Health check
 app.get('/api/health', (req, res) => {
