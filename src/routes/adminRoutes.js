@@ -32,6 +32,9 @@ const {
   updateMembershipPlan,
   deleteMembershipPlan,
 } = require('../controllers/membershipPlanController');
+const {
+  getAllSubscriptions
+} = require('../controllers/membershipSubscriptionController');
 
 // All admin routes require authentication
 router.use(protect);
@@ -70,5 +73,6 @@ router.post('/membership-plans', protect, createMembershipPlan);
 router.get('/membership-plans/:id', protect, getMembershipPlanById);
 router.put('/membership-plans/:id', protect, updateMembershipPlan);
 router.delete('/membership-plans/:id', protect, deleteMembershipPlan);
+router.get('/subscriptions', protect, getAllSubscriptions);
 
 module.exports = router;
