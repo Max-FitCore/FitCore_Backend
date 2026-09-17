@@ -378,11 +378,83 @@ const getPublicMembershipPlans = async (req, res) => {
   }
 };
 
+// @desc    Get all membership plans (public - no auth required)
+// @route   GET /api/public/membership-plans
+// @access  Public
+const getAllMembershipPlansPublic = async (req, res) => {
+  try {
+    const { 
+      page = 1, 
+      limit = 20, 
+      search = '', 
+      duration = '',
+      minPrice = '',
+      maxPrice = '',
+      sortBy = 'price',
+      sortOrder = 'asc'
+    } = req.query;
+
+    // Build query (only active plans for public)
+    const query = { isActive: true };
+
+    // Search filter
+    if (search && search.trim()) {
+      query.$or = [
+        { planName: { $regex: search.trim(), $options: 'i' } },
+        { description: { $regex: search.trim(), $options: 'i' } }
+      ];
+    }
+
+    // Duration filter
+    if (duration && duration.trim()) {
+      query.duration = duration.trim();
+    }
+
+    // Price range filter
+    if (minPrice || maxPrice) {
+      query.price = {};
+      if (minPrice) query.price.$gte = Number(minPrice);
+      if (maxPrice) query.price.$lte = Number(maxPrice);
+    }
+
+    // Sort options
+    const sortOptions = {};
+    sortOptions[sortBy] = sortOrder === 'desc' ? -1 : 1;
+
+    // Pagination
+    const skip = (parseInt(page) - 1) * parseInt(limit);
+    const total = await MembershipPlan.countDocuments(query);
+
+    const plans = await MembershipPlan.find(query)
+      .sort(sortOptions)
+      .skip(skip)
+      .limit(parseInt(limit));
+
+    res.status(200).json({
+      success: true,
+      count: plans.length,
+      total,
+      page: parseInt(page),
+      totalPages: Math.ceil(total / parseInt(limit)),
+      data: plans
+    });
+
+  } catch (error) {
+    console.error('Get all membership plans public error:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Error fetching membership plans',
+      error: error.message
+    });
+  }
+};
+
 module.exports = {
   createMembershipPlan,
   getAllMembershipPlans,
   getMembershipPlanById,
   updateMembershipPlan,
   deleteMembershipPlan,
-  getPublicMembershipPlans
+  getPublicMembershipPlans,
+  getAllMembershipPlansPublic
 };
